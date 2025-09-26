@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Flybondi - Challenge (Vanilla JS)</title>
+  <style>
+    :root{--accent:#1e90ff;--muted:#666}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;line-height:1.4;margin:0;background:#f6f8fb;color:#0b1220}
+    .container{max-width:980px;margin:28px auto;padding:20px}
+    header{display:flex;gap:16px;align-items:center;margin-bottom:18px}
+    h1{margin:0;font-size:20px}
+    .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px}
+    input,select,button{padding:8px 10px;border-radius:8px;border:1px solid #d6dae3;background:white}
+    button{cursor:pointer;border:0;background:var(--accent);color:white;font-weight:600}
+    .results-info{margin-bottom:12px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+    .card{background:white;border-radius:10px;padding:12px;box-shadow:0 6px 18px rgba(11,18,32,0.06);border:1px solid #e7eaf0}
+    .card h3{margin:0 0 8px;font-size:16px}
+    .meta{font-size:13px;color:var(--muted);margin-bottom:8px}
+    .price{font-weight:700;font-size:18px}
+    .small{font-size:13px;color:var(--muted)}
+    .actions{display:flex;gap:8px;margin-top:8px}
+    .pill{display:inline-block;padding:6px 8px;border-radius:999px;background:#eef6ff;color:var(--accent);font-weight:600;font-size:12px}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+    .no-results{padding:18px;background:#fff3f1;border-radius:8px;border:1px solid #ffd6cc;color:#9a3b00}
+    @media (max-width:420px){.controls{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Buscador de paquetes ida y vuelta (Vanilla JS)</h1>
+    </header>
+
+    <section class="search">
+      <div class="controls">
+        <div>
+          <label for="origin">Origen</label>
+          <select id="origin"></select>
+        </div>
+        <div>
+          <label for="budget">Presupuesto total (ARS)</label>
+          <input id="budget" type="number" placeholder="ej: 800" />
+        </div>
+        <div>
+          <label for="minDays">Mín días viaje</label>
+          <input id="minDays" type="number" min="0" placeholder="0" />
+        </div>
+        <div>
+          <label for="sort">Ordenar por</label>
+          <select id="sort">
+            <option value="price">Menor precio</option>
+            <option value="duration">Menor duración</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:end;gap:8px">
+          <button id="searchBtn">Buscar</button>
+          <button id="resetBtn" style="background:#f0f2f6;color:#0b1220">Reset</button>
+        </div>
+      </div>
+
+      <div id="info" class="results-info">Cargando dataset de ejemplo...</div>
+    </section>
+
+    <section id="results" aria-live="polite"></section>
+
+
+  </div>
+
+  <script>
+    // ----------------------------
+    // Dataset de ejemplo embebido (puedes reemplazar por fetch a dataset.json)
+    // Cada vuelo es un trayecto unidireccional
+    // ----------------------------
+    const FLIGHTS = [
+      { id:1, origin: 'Buenos Aires', destination: 'Córdoba', price: 120, availability: 5, date: '2025-10-05' },
+      { id:2, origin: 'Córdoba', destination: 'Buenos Aires', price: 110, availability: 3, date: '2025-10-10' },
+      { id:3, origin: 'Buenos Aires', destination: 'Mendoza', price: 220, availability: 2, date: '2025-11-01' },
+      { id:4, origin: 'Mendoza', destination: 'Buenos Aires', price: 200, availability: 2, date: '2025-11-07' },
+      { id:5, origin: 'Buenos Aires', destination: 'Salta', price: 300, availability: 4, date: '2025-12-01' },
+      { id:6, origin: 'Salta', destination: 'Buenos Aires', price: 290, availability: 1, date: '2025-12-10' },
+      { id:7, origin: 'Buenos Aires', destination: 'Bariloche', price: 450, availability: 2, date: '2025-10-15' },
+      { id:8, origin: 'Bariloche', destination: 'Buenos Aires', price: 430, availability: 2, date: '2025-10-22' },
+      { id:9, origin: 'Buenos Aires', destination: 'Iguazú', price: 600, availability: 1, date: '2025-10-20' },
+      { id:10, origin: 'Iguazú', destination: 'Buenos Aires', price: 610, availability: 1, date: '2025-10-25' },
+      // vuelos entre otras ciudades (no con BA) para mostrar combinaciones distintas
+      { id:11, origin: 'Córdoba', destination: 'Mendoza', price: 150, availability: 2, date: '2025-09-30' },
+      { id:12, origin: 'Mendoza', destination: 'Córdoba', price: 140, availability: 2, date: '2025-10-04' }
+    ];
+
+    // ----------------------------
+    // Estado local
+    // ----------------------------
+    const state = {
+      flights: FLIGHTS.slice(), // copia
+      combos: []
+    };
+
+    // ----------------------------
+    // Utils
+    // ----------------------------
+    function parseDate(s){
+      // formato ISO simple YYYY-MM-DD
+      return new Date(s + 'T00:00:00');
+    }
+
+    function daysBetween(a,b){
+      const ms = Math.abs(b - a);
+      return Math.round(ms / (1000*60*60*24));
+    }
+
+    // ----------------------------
+    // Inicializar UI
+    // ----------------------------
+    const originSel = document.getElementById('origin');
+    const budgetInput = document.getElementById('budget');
+    const minDaysInput = document.getElementById('minDays');
+    const sortSel = document.getElementById('sort');
+    const searchBtn = document.getElementById('searchBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const info = document.getElementById('info');
+    const results = document.getElementById('results');
+
+    function populateOrigins(){
+      const origins = Array.from(new Set(state.flights.map(f => f.origin)));
+      originSel.innerHTML = '';
+      origins.forEach(o => {
+        const opt = document.createElement('option'); opt.value = o; opt.textContent = o; originSel.appendChild(opt);
+      });
+    }
+
+    // ----------------------------
+    // Lógica: combinar ida + vuelta
+    // ----------------------------
+    function generarCombinaciones({origin, presupuesto, minDays}){
+      const combos = [];
+      const vuelosIda = state.flights.filter(f => f.origin === origin && f.availability > 0);
+      const vuelosVuelta = state.flights.filter(f => f.destination === origin && f.availability > 0);
+
+      vuelosIda.forEach(ida => {
+        vuelosVuelta.forEach(vuelta => {
+          // Deben coincidir las ciudades (ida.destination == vuelta.origin)
+          if (ida.destination !== vuelta.origin) return;
+          const fechaIda = parseDate(ida.date);
+          const fechaVuelta = parseDate(vuelta.date);
+          if (fechaVuelta <= fechaIda) return; // vuelta después de la ida
+
+          const durationDays = daysBetween(fechaIda, fechaVuelta);
+          if (durationDays < minDays) return;
+
+          const total = ida.price + vuelta.price;
+          if (total > presupuesto) return;
+
+          // disponibilidad: ambos vuelos con availability >=1
+          if (ida.availability < 1 || vuelta.availability < 1) return;
+
+          combos.push({
+            destination: ida.destination,
+            ida, vuelta, total, durationDays
+          });
+        });
+      });
+
+      return combos;
+    }
+
+    // ----------------------------
+    // Render
+    // ----------------------------
+    function render(combos){
+      results.innerHTML = '';
+      if (!combos || combos.length === 0){
+        results.innerHTML = '<div class="no-results">No se encontraron paquetes que cumplan los criterios.</div>';
+        info.textContent = '0 opciones';
+        return;
+      }
+
+      info.textContent = combos.length + ' opción(es) encontradas — haz click en "Reservar" para simular compra.';
+
+      const grid = document.createElement('div'); grid.className = 'grid';
+      combos.forEach(c => {
+        const card = document.createElement('article'); card.className = 'card';
+        const h = document.createElement('h3'); h.textContent = c.destination; card.appendChild(h);
+
+        const meta = document.createElement('div'); meta.className = 'meta';
+        meta.innerHTML = `Ida: ${c.ida.origin} → ${c.ida.destination} • ${c.ida.date} — $${c.ida.price}<br>Vuelta: ${c.vuelta.origin} → ${c.vuelta.destination} • ${c.vuelta.date} — $${c.vuelta.price}`;
+        card.appendChild(meta);
+
+        const price = document.createElement('div'); price.className = 'price'; price.textContent = 'Total: $' + c.total; card.appendChild(price);
+
+        const small = document.createElement('div'); small.className = 'small'; small.textContent = `Duración: ${c.durationDays} día(s) • Disponibilidad ida: ${c.ida.availability} • vuelta: ${c.vuelta.availability}`;
+        card.appendChild(small);
+
+        const actions = document.createElement('div'); actions.className = 'actions';
+        const more = document.createElement('button'); more.textContent = 'Ver detalle'; more.style.background='#fff'; more.style.border='1px solid #e2e6ef'; more.onclick = () => mostrarDetalle(c);
+        const book = document.createElement('button'); book.textContent = 'Reservar'; book.onclick = () => reservar(c);
+        actions.appendChild(more); actions.appendChild(book);
+        card.appendChild(actions);
+
+        grid.appendChild(card);
+      });
+
+      results.appendChild(grid);
+    }
+
+    function mostrarDetalle(c){
+      alert(`Destino: ${c.destination}\nIda: ${c.ida.date} ($${c.ida.price})\nVuelta: ${c.vuelta.date} ($${c.vuelta.price})\nTotal: $${c.total}\nDuración: ${c.durationDays} días\n\nIDs: ida=${c.ida.id}, vuelta=${c.vuelta.id}`);
+    }
+
+    // ----------------------------
+    // Simula reservar: decrementa availability en memoria
+    // ----------------------------
+    function reservar(combo){
+      if (combo.ida.availability < 1 || combo.vuelta.availability < 1){
+        alert('Lo siento, ya no hay disponibilidad en una de las tramos');
+        return;
+      }
+      // confirmación
+      if (!confirm(`Reservar paquete a ${combo.destination} por $${combo.total}?`)) return;
+
+      // decrementar
+      const idaIdx = state.flights.findIndex(f => f.id === combo.ida.id);
+      const vueltaIdx = state.flights.findIndex(f => f.id === combo.vuelta.id);
+      if (idaIdx >= 0) state.flights[idaIdx].availability -= 1;
+      if (vueltaIdx >= 0) state.flights[vueltaIdx].availability -= 1;
+
+      alert('Reserva simulada: ¡hecho! (solo en memoria)');
+
+      // volver a buscar con los mismos criterios para actualizar disponibilidad
+      triggerSearch();
+    }
+
+    // ----------------------------
+    // Buscar — lee controles y ejecuta
+    // ----------------------------
+    function triggerSearch(){
+      const origin = originSel.value;
+      const presupuesto = Number(budgetInput.value) || 0;
+      const minDays = Number(minDaysInput.value) || 0;
+      if (!origin){ info.textContent = 'Selecciona un origen'; return; }
+      if (presupuesto <= 0){ info.textContent = 'Ingresa un presupuesto mayor a 0'; return; }
+
+      let combos = generarCombinaciones({origin, presupuesto, minDays});
+
+      // ordenar
+      const sortBy = sortSel.value;
+      if (sortBy === 'price') combos.sort((a,b) => a.total - b.total);
+      else if (sortBy === 'duration') combos.sort((a,b) => a.durationDays - b.durationDays || a.total - b.total);
+
+      state.combos = combos;
+      render(combos);
+    }
+
+    // ----------------------------
+    // Reset
+    // ----------------------------
+    function resetAll(){
+      state.flights = FLIGHTS.slice(); // restaurar copias originales
+      budgetInput.value = '';
+      minDaysInput.value = '';
+      sortSel.value = 'price';
+      populateOrigins();
+      info.textContent = 'Dataset restaurado. Ingresa presupuesto y busca.';
+      results.innerHTML = '';
+    }
+
+    // ----------------------------
+    // Eventos
+    // ----------------------------
+    searchBtn.addEventListener('click', () => triggerSearch());
+    resetBtn.addEventListener('click', () => resetAll());
+
+    // Iniciar
+    (function init(){
+      populateOrigins();
+      info.textContent = 'Dataset cargado. Selecciona origen, ingresa presupuesto y haz click en Buscar.';
+    })();
+
+  </script>
+</body>
+</html>
